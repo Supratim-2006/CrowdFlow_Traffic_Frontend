@@ -96,7 +96,7 @@ export interface AnalyzeInput {
   event_cause: string;
 }
 
-const BASE_URL = "http://localhost:8000";
+const BASE_URL = "https://kukri2006-crowdflow-traffic-backend.hf.space";
 const ANALYZE_URL = `${BASE_URL}/analyze`;
 const ROUTING_BASE = `${BASE_URL}/routing`;
 const LOCAL_BYPASS_URL = `${ROUTING_BASE}/local-bypass`;
