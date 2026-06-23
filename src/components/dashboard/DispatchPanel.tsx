@@ -38,38 +38,55 @@ function haversineKm(a: [number, number], b: [number, number]) {
 
 async function fetchNearestStation(lat: number, lon: number): Promise<NearbyStation | null> {
   const query = `[out:json][timeout:20];nwr["amenity"="police"](around:8000,${lat},${lon});out center 15;`;
-  const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Overpass ${res.status}`);
-  const json = (await res.json()) as {
-    elements: Array<{
-      lat?: number;
-      lon?: number;
-      center?: { lat: number; lon: number };
-      tags?: Record<string, string>;
-    }>;
-  };
-  const stations = (json.elements || [])
-    .map((el) => {
-      const la = el.lat ?? el.center?.lat;
-      const lo = el.lon ?? el.center?.lon;
-      if (typeof la !== "number" || typeof lo !== "number") return null;
-      const tags = el.tags || {};
-      return {
-        latitude: la,
-        longitude: lo,
-        name: tags.name || tags["name:en"] || "Police Station",
-        address: [tags["addr:street"], tags["addr:suburb"], tags["addr:city"]]
-          .filter(Boolean)
-          .join(", "),
-        phone: tags.phone || tags["contact:phone"],
-        distance_km: haversineKm([lat, lon], [la, lo]),
-      } as NearbyStation;
-    })
-    .filter((s): s is NearbyStation => !!s)
-    .sort((a, b) => a.distance_km - b.distance_km);
-  return stations[0] ?? null;
+  const endpoints = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://lz4.overpass-api.de/api/interpreter"
+  ];
+  let lastError: Error | null = null;
+  for (const baseUrl of endpoints) {
+    try {
+      const url = `${baseUrl}?data=${encodeURIComponent(query)}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Overpass ${res.status}`);
+      const json = (await res.json()) as {
+        elements: Array<{
+          lat?: number;
+          lon?: number;
+          center?: { lat: number; lon: number };
+          tags?: Record<string, string>;
+        }>;
+      };
+      const stations = (json.elements || [])
+        .map((el) => {
+          const la = el.lat ?? el.center?.lat;
+          const lo = el.lon ?? el.center?.lon;
+          if (typeof la !== "number" || typeof lo !== "number") return null;
+          const tags = el.tags || {};
+          return {
+            latitude: la,
+            longitude: lo,
+            name: tags.name || tags["name:en"] || "Police Station",
+            address: [tags["addr:street"], tags["addr:suburb"], tags["addr:city"]]
+              .filter(Boolean)
+              .join(", "),
+            phone: tags.phone || tags["contact:phone"],
+            distance_km: haversineKm([lat, lon], [la, lo]),
+          } as NearbyStation;
+        })
+        .filter((s): s is NearbyStation => !!s)
+        .sort((a, b) => a.distance_km - b.distance_km);
+      return stations[0] ?? null;
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error(String(e));
+      // Continue to next endpoint
+      console.warn(`[DispatchPanel] Endpoint ${baseUrl} failed:`, lastError.message);
+    }
+  }
+
+  throw lastError || new Error("All Overpass API endpoints failed");
 }
+
 
 const BREAKDOWN_META = [
   {
@@ -103,12 +120,12 @@ export function DispatchPanel({ data }: { data: AnalyzeResponse }) {
   const [station, setStation] = useState<NearbyStation | null>(
     apiStation && apiStation.latitude && apiStation.longitude
       ? {
-          name: apiStation.name || "Police Station",
-          latitude: apiStation.latitude,
-          longitude: apiStation.longitude,
-          distance_km: apiStation.distance_km ?? haversineKm([lat, lon], [apiStation.latitude, apiStation.longitude]),
-          address: apiStation.address,
-        }
+        name: apiStation.name || "Police Station",
+        latitude: apiStation.latitude,
+        longitude: apiStation.longitude,
+        distance_km: apiStation.distance_km ?? haversineKm([lat, lon], [apiStation.latitude, apiStation.longitude]),
+        address: apiStation.address,
+      }
       : null,
   );
   const [loadingStation, setLoadingStation] = useState(false);
